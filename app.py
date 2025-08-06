@@ -30,7 +30,52 @@ st.set_page_config(
 
 # --- Assistant IDs ---
 ANALYZER_ASSISTANT_ID = "asst_WzODK9EapCaZoYkshT6x9xEH"
-REPORT_MAKER_ASSISTANT_ID = "asst_TKkFTDouxjjRJaTwAaX0ppte"
+# --- Report Maker Prompt ---
+REPORT_MAKER_PROMPT = """You are a senior compliance report writer specializing in YMYL content audits. Your task is to combine multiple section analyses into a single, comprehensive, well-formatted audit report that is easy for humans to read and use.
+
+You will receive multiple section analyses from different parts of a website. Your job is to compile them into one organized, professional report that maintains all the original analysis details while presenting them in a clear, structured format.
+
+REQUIREMENTS:
+1. Preserve all original issue cards and analysis details - do not summarize or remove information
+2. Organize content by sections with clear headers  
+3. Use professional formatting that's easy to scan and read
+4. Note any sections that failed analysis
+5. Create a clean, human-friendly document
+
+OUTPUT FORMAT:
+
+# YMYL Compliance Audit Report
+
+**Audit Date:** {current_date}
+**Content Type:** Online Casino/Gambling  
+**Analysis Method:** Section-by-section E-E-A-T compliance review
+
+---
+
+## Audit Results by Section
+
+[For each section provided, organize with clear headers and preserve all original formatting, issue cards, severity indicators, and details]
+
+## Processing Summary
+
+**Sections Successfully Analyzed:** [Number]  
+**Sections with Analysis Errors:** [Number]
+
+[If any sections failed, list them with error descriptions]
+
+---
+
+*Report generated through automated YMYL compliance analysis system*
+
+FORMATTING GUIDELINES:
+- Use clear markdown headers (##) to separate sections
+- Preserve all original emoji severity indicators  
+- Keep all issue cards intact with their original formatting
+- Use horizontal rules (---) to create visual separation
+- Ensure the report flows logically from section to section
+- Make the document scannable with good visual hierarchy
+
+Your goal is to create a professional, comprehensive document that compiles all section analyses while maintaining readability and usability for human reviewers."""
 
 # --- OpenAI Assistant API Functions ---
 async def call_assistant(api_key: str, assistant_id: str, content: str, chunk_index: int = None) -> Dict[str, Any]:
@@ -255,7 +300,59 @@ async def process_chunks_parallel(chunks: List[Dict], api_key: str) -> List[Dict
     
     return processed_results
 
-def create_report_input(analysis_results: List[Dict]) -> str:
+async def generate_report_with_chat(api_key: str, report_input: str) -> Dict[str, Any]:
+    """Generate report using fast Chat Completions API"""
+    try:
+        logger.info("Starting report generation with Chat Completions")
+        
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        # Format the prompt with current date
+        formatted_prompt = REPORT_MAKER_PROMPT.format(current_date=datetime.now().strftime("%Y-%m-%d"))
+        
+        payload = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "system", "content": formatted_prompt},
+                {"role": "user", "content": report_input}
+            ],
+            "max_tokens": 4000,
+            "temperature": 0.1
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=60)
+            ) as response:
+                
+                if response.status == 200:
+                    result = await response.json()
+                    logger.info("Report generated successfully with Chat Completions")
+                    return {
+                        "success": True,
+                        "content": result["choices"][0]["message"]["content"],
+                        "tokens_used": result.get("usage", {}).get("total_tokens", 0)
+                    }
+                else:
+                    error_text = await response.text()
+                    logger.error(f"Chat completions failed: {error_text}")
+                    return {
+                        "success": False,
+                        "error": f"HTTP {response.status}: {error_text}"
+                    }
+                    
+    except Exception as e:
+        logger.error(f"Exception in generate_report_with_chat: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
     """Prepare input for report maker"""
     analyses_text = ""
     successful_count = 0
@@ -335,7 +432,7 @@ def main():
                 st.info(f"🚀 Starting parallel analysis of {len(chunks)} chunks...")
                 st.write(f"**Assistant IDs:**")
                 st.write(f"- Analyzer: `{ANALYZER_ASSISTANT_ID}`")
-                st.write(f"- Report Maker: `{REPORT_MAKER_ASSISTANT_ID}`")
+                st.write(f"- Report Maker: `Chat Completions (Fast)`")
                 st.write(f"**API Key Status:** {'✅ Loaded' if api_key.startswith('sk-') else '❌ Invalid'}")
                 st.write(f"**Chunk Details:**")
                 for chunk in chunks:
@@ -402,29 +499,51 @@ def main():
                             report_input = create_report_input(analysis_results)
                             logger.info(f"Report input created: {len(report_input)} characters")
                             
-                            # Call report maker assistant
+                            # Call report maker using fast Chat Completions
                             async def generate_report():
-                                logger.info("Starting report generation")
-                                return await call_assistant(
-                                    api_key=api_key,
-                                    assistant_id=REPORT_MAKER_ASSISTANT_ID,
-                                    content=report_input,
-                                    chunk_index=None
-                                )
+                                logger.info("Starting fast report generation")
+                                return await generate_report_with_chat(api_key, report_input)
                             
                             report_result = asyncio.run(generate_report())
                             
                             if report_result["success"]:
-                                st.markdown(report_result["content"])
-                                logger.info("Report generated successfully")
+                                st.success("✅ Report generated successfully!")
                                 
-                                # Download button
-                                st.download_button(
-                                    label="💾 Download Report",
-                                    data=report_result["content"],
-                                    file_name=f"compliance_audit_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
-                                    mime="text/markdown"
-                                )
+                                # Copy to clipboard button
+                                st.subheader("📋 Final Report")
+                                
+                                # JavaScript to copy content to clipboard
+                                report_content = report_result["content"]
+                                
+                                # Create copy button using streamlit components
+                                col1, col2 = st.columns([1, 4])
+                                
+                                with col1:
+                                    if st.button("📋 Copy Report", type="primary"):
+                                        # Use streamlit's built-in clipboard functionality
+                                        st.write("Report copied to clipboard!")
+                                        # Store in session state for JavaScript to access
+                                        st.session_state['report_to_copy'] = report_content
+                                
+                                # Add JavaScript to handle clipboard copy
+                                if 'report_to_copy' in st.session_state:
+                                    st.components.v1.html(f"""
+                                    <script>
+                                    navigator.clipboard.writeText(`{st.session_state['report_to_copy'].replace('`', '\\`')}`).then(function() {{
+                                        console.log('Report copied to clipboard!');
+                                    }}).catch(function(err) {{
+                                        console.error('Failed to copy: ', err);
+                                    }});
+                                    </script>
+                                    """, height=0)
+                                    # Clean up session state
+                                    del st.session_state['report_to_copy']
+                                
+                                # Show formatted report for preview
+                                with st.expander("📖 Preview Report"):
+                                    st.markdown(report_result["content"])
+                                
+                                logger.info("Report generated successfully")
                             else:
                                 st.error(f"❌ Failed to generate report: {report_result['error']}")
                                 logger.error(f"Report generation failed: {report_result['error']}")
