@@ -41,6 +41,7 @@ REQUIREMENTS:
 3. Use professional formatting that's easy to scan and read
 4. Note any sections that failed analysis
 5. Create a clean, human-friendly document
+6. Add an executive summary with key metrics
 
 OUTPUT FORMAT:
 
@@ -52,20 +53,47 @@ OUTPUT FORMAT:
 
 ---
 
-## Audit Results by Section
+## 📊 Executive Summary
+
+| Metric | Count | Details |
+|--------|--------|---------|
+| **Total Sections Analyzed** | [Count] | [List section names] |
+| **🔴 Critical Issues** | [Count] | Immediate action required |
+| **🟠 High Priority Issues** | [Count] | Address within 1 week |
+| **🟡 Medium Priority Issues** | [Count] | Address within 1 month |
+| **🔵 Low Priority Issues** | [Count] | Address when possible |
+| **✅ Compliant Sections** | [Count] | No issues found |
+
+### 🎯 Top Priority Actions
+1. **Most Critical:** [Describe the most urgent issue to fix]
+2. **High Impact:** [Describe the second most important fix]
+3. **Quick Wins:** [Describe easy fixes with good impact]
+
+---
+
+## 📋 Detailed Audit Results by Section
 
 [For each section provided, organize with clear headers and preserve all original formatting, issue cards, severity indicators, and details]
 
-## Processing Summary
+---
 
-**Sections Successfully Analyzed:** [Number]  
-**Sections with Analysis Errors:** [Number]
+## 📈 Processing Summary
+
+**✅ Sections Successfully Analyzed:** [Number]  
+**❌ Sections with Analysis Errors:** [Number]
 
 [If any sections failed, list them with error descriptions]
+
+### 🔧 Implementation Recommendations
+- **Critical & High Issues:** Address immediately to avoid potential penalties
+- **Medium Issues:** Plan fixes within 30 days  
+- **Low Issues:** Include in next content review cycle
+- **Monitor:** Set up regular audits to maintain compliance
 
 ---
 
 *Report generated through automated YMYL compliance analysis system*
+*For questions about specific recommendations, consult with SEO and legal teams*
 
 FORMATTING GUIDELINES:
 - Use clear markdown headers (##) to separate sections
@@ -74,6 +102,8 @@ FORMATTING GUIDELINES:
 - Use horizontal rules (---) to create visual separation
 - Ensure the report flows logically from section to section
 - Make the document scannable with good visual hierarchy
+- Count and categorize all issues for the executive summary
+- Provide actionable next steps
 
 Your goal is to create a professional, comprehensive document that compiles all section analyses while maintaining readability and usability for human reviewers."""
 
