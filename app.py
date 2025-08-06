@@ -2,8 +2,7 @@
 """
 Parallel Analysis Test App
 
-Tests the parallel chunk analysis system with real OpenAI API calls.
-Simulates the workflow: JSON Input → Extract Big Chunks → Parallel Analysis → Report Maker
+Tests the parallel chunk analysis system with real OpenAI Assistants API calls.
 """
 
 import streamlit as st
@@ -12,9 +11,8 @@ import asyncio
 import aiohttp
 import time
 from datetime import datetime
-import concurrent.futures
-from typing import List, Dict, Any
 import logging
+from typing import List, Dict, Any
 
 # Set up detailed logging
 logging.basicConfig(
@@ -34,52 +32,176 @@ st.set_page_config(
 ANALYZER_ASSISTANT_ID = "asst_WzODK9EapCaZoYkshT6x9xEH"
 REPORT_MAKER_ASSISTANT_ID = "asst_TKkFTDouxjjRJaTwAaX0ppte"
 
-# --- OpenAI API Functions ---
-async def call_openai_api(api_key: str, content: str, chunk_index: int = None) -> Dict[str, Any]:
-    """Make async call to OpenAI API using assistant"""
+# --- OpenAI Assistant API Functions ---
+async def call_assistant(api_key: str, assistant_id: str, content: str, chunk_index: int = None) -> Dict[str, Any]:
+    """Make async call to OpenAI Assistant API"""
     try:
+        logger.info(f"Starting assistant call for chunk {chunk_index} with assistant {assistant_id}")
+        
         headers = {
             "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "OpenAI-Beta": "assistants=v2"
         }
         
-        payload = {
-            "model": "gpt-4",
-            "messages": [{"role": "user", "content": content}],
-            "max_tokens": 3000,
-            "temperature": 0.3
-        }
+        # Create thread
+        logger.info("Creating thread...")
+        thread_response = await create_thread(headers)
+        if not thread_response["success"]:
+            logger.error(f"Thread creation failed: {thread_response['error']}")
+            return {"success": False, "error": thread_response["error"], "chunk_index": chunk_index}
+            
+        thread_id = thread_response["thread_id"]
+        logger.info(f"Thread created: {thread_id}")
         
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=180)
-            ) as response:
-                
-                if response.status == 200:
-                    result = await response.json()
-                    return {
-                        "success": True,
-                        "content": result["choices"][0]["message"]["content"],
-                        "chunk_index": chunk_index,
-                        "tokens_used": result.get("usage", {}).get("total_tokens", 0)
-                    }
-                else:
-                    error_text = await response.text()
-                    return {
-                        "success": False,
-                        "error": f"HTTP {response.status}: {error_text}",
-                        "chunk_index": chunk_index
-                    }
+        # Add message to thread
+        logger.info("Adding message to thread...")
+        message_response = await add_message_to_thread(headers, thread_id, content)
+        if not message_response["success"]:
+            logger.error(f"Message creation failed: {message_response['error']}")
+            return {"success": False, "error": message_response["error"], "chunk_index": chunk_index}
+        
+        # Run assistant
+        logger.info("Running assistant...")
+        run_response = await run_assistant(headers, thread_id, assistant_id)
+        if not run_response["success"]:
+            logger.error(f"Assistant run failed: {run_response['error']}")
+            return {"success": False, "error": run_response["error"], "chunk_index": chunk_index}
+        
+        logger.info(f"Assistant call completed successfully for chunk {chunk_index}")
+        return {
+            "success": True,
+            "content": run_response["content"],
+            "chunk_index": chunk_index,
+            "tokens_used": run_response.get("tokens_used", 0)
+        }
                     
     except Exception as e:
+        logger.error(f"Exception in call_assistant: {str(e)}")
         return {
             "success": False,
             "error": str(e),
             "chunk_index": chunk_index
         }
+
+async def create_thread(headers: dict) -> Dict[str, Any]:
+    """Create a new thread"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.openai.com/v1/threads",
+                headers=headers,
+                json={},
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    return {"success": True, "thread_id": result["id"]}
+                else:
+                    error_text = await response.text()
+                    return {"success": False, "error": f"Thread creation failed: {error_text}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+async def add_message_to_thread(headers: dict, thread_id: str, content: str) -> Dict[str, Any]:
+    """Add message to thread"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"https://api.openai.com/v1/threads/{thread_id}/messages",
+                headers=headers,
+                json={
+                    "role": "user",
+                    "content": content
+                },
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                if response.status == 200:
+                    return {"success": True}
+                else:
+                    error_text = await response.text()
+                    return {"success": False, "error": f"Message creation failed: {error_text}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+async def run_assistant(headers: dict, thread_id: str, assistant_id: str) -> Dict[str, Any]:
+    """Run assistant and poll for completion"""
+    try:
+        # Create run
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"https://api.openai.com/v1/threads/{thread_id}/runs",
+                headers=headers,
+                json={
+                    "assistant_id": assistant_id
+                },
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    return {"success": False, "error": f"Run creation failed: {error_text}"}
+                
+                run_result = await response.json()
+                run_id = run_result["id"]
+        
+        # Poll for completion
+        max_attempts = 60  # 5 minutes max
+        attempt = 0
+        
+        while attempt < max_attempts:
+            await asyncio.sleep(5)  # Wait 5 seconds between polls
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"https://api.openai.com/v1/threads/{thread_id}/runs/{run_id}",
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    if response.status == 200:
+                        run_status = await response.json()
+                        status = run_status["status"]
+                        
+                        logger.info(f"Run status: {status}")
+                        
+                        if status == "completed":
+                            # Get messages
+                            return await get_thread_messages(headers, thread_id)
+                        elif status in ["failed", "cancelled", "expired"]:
+                            return {"success": False, "error": f"Run {status}"}
+                        # Continue polling for other statuses
+                    else:
+                        attempt += 1
+                        
+            attempt += 1
+            
+        return {"success": False, "error": "Run polling timeout"}
+                        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+async def get_thread_messages(headers: dict, thread_id: str) -> Dict[str, Any]:
+    """Get messages from thread"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"https://api.openai.com/v1/threads/{thread_id}/messages",
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                if response.status == 200:
+                    messages = await response.json()
+                    # Get the latest assistant message
+                    for message in messages["data"]:
+                        if message["role"] == "assistant":
+                            content = message["content"][0]["text"]["value"]
+                            return {"success": True, "content": content}
+                    
+                    return {"success": False, "error": "No assistant message found"}
+                else:
+                    error_text = await response.text()
+                    return {"success": False, "error": f"Message retrieval failed: {error_text}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 def extract_big_chunks(json_data: Dict) -> List[Dict]:
     """Extract and prepare big chunks for analysis"""
@@ -158,7 +280,7 @@ def create_report_input(analysis_results: List[Dict]) -> str:
 # --- Streamlit UI ---
 def main():
     st.title("🧪 Parallel Analysis Test App")
-    st.markdown("**Test the parallel chunk analysis system with real OpenAI API calls**")
+    st.markdown("**Test the parallel chunk analysis system with real OpenAI Assistants API calls**")
     
     # Check for API key
     if "openai_api_key" not in st.secrets:
@@ -166,7 +288,6 @@ def main():
         st.stop()
     
     st.success("✅ API key loaded from secrets")
-    
     st.markdown("---")
     
     # Input section
@@ -208,8 +329,10 @@ def main():
             st.subheader("🔍 Processing Logs")
             log_container = st.container()
             
+            api_key = st.secrets["openai_api_key"]
+            
             with log_container:
-                st.info(f"🚀 Starting parallel analysis of {total_chunks} chunks...")
+                st.info(f"🚀 Starting parallel analysis of {len(chunks)} chunks...")
                 st.write(f"**Assistant IDs:**")
                 st.write(f"- Analyzer: `{ANALYZER_ASSISTANT_ID}`")
                 st.write(f"- Report Maker: `{REPORT_MAKER_ASSISTANT_ID}`")
@@ -219,6 +342,7 @@ def main():
                     st.write(f"- Chunk {chunk['index']}: {len(chunk['text'])} characters")
             
             # Progress tracking
+            total_chunks = len(chunks)
             progress_bar = st.progress(0)
             status_container = st.empty()
             
@@ -226,9 +350,6 @@ def main():
             start_time = time.time()
             
             try:
-                # Run parallel processing
-                api_key = st.secrets["openai_api_key"]
-                
                 with st.spinner("🤖 Running parallel analysis..."):
                     async def run_analysis():
                         logger.info(f"Starting analysis of {len(chunks)} chunks")
@@ -239,44 +360,39 @@ def main():
                 
                 logger.info("Analysis completed")
                 
-            except Exception as e:
-                st.error(f"❌ Error during analysis: {str(e)}")
-                logger.error(f"Analysis error: {str(e)}")
-                return
-            
-            # Update progress
-            progress_bar.progress(1.0)
-            processing_time = time.time() - start_time
-            
-            # Display results
-            successful_analyses = [r for r in analysis_results if r["success"]]
-            failed_analyses = [r for r in analysis_results if not r["success"]]
-            
-            with status_container.container():
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Total Chunks", total_chunks)
-                with col2:
-                    st.metric("Successful", len(successful_analyses))
-                with col3:
-                    st.metric("Failed", len(failed_analyses))
+                # Update progress
+                progress_bar.progress(1.0)
+                processing_time = time.time() - start_time
                 
-                st.success(f"✅ Parallel analysis completed in {processing_time:.2f} seconds")
-            
-            # Show individual results
-            st.subheader("📊 Individual Chunk Analyses")
-            
-            for result in analysis_results:
-                chunk_idx = result["chunk_index"]
+                # Display results
+                successful_analyses = [r for r in analysis_results if r["success"]]
+                failed_analyses = [r for r in analysis_results if not r["success"]]
                 
-                if result["success"]:
-                    with st.expander(f"✅ Chunk {chunk_idx} Analysis (Success)"):
-                        st.markdown(result["content"])
-                        st.caption(f"Tokens used: {result.get('tokens_used', 'Unknown')}")
-                else:
-                    with st.expander(f"❌ Chunk {chunk_idx} Analysis (Failed)"):
-                        st.error(f"Error: {result['error']}")
-            
+                with status_container.container():
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Total Chunks", total_chunks)
+                    with col2:
+                        st.metric("Successful", len(successful_analyses))
+                    with col3:
+                        st.metric("Failed", len(failed_analyses))
+                    
+                    st.success(f"✅ Parallel analysis completed in {processing_time:.2f} seconds")
+                
+                # Show individual results
+                st.subheader("📊 Individual Chunk Analyses")
+                
+                for result in analysis_results:
+                    chunk_idx = result["chunk_index"]
+                    
+                    if result["success"]:
+                        with st.expander(f"✅ Chunk {chunk_idx} Analysis (Success)"):
+                            st.markdown(result["content"])
+                            st.caption(f"Tokens used: {result.get('tokens_used', 'Unknown')}")
+                    else:
+                        with st.expander(f"❌ Chunk {chunk_idx} Analysis (Failed)"):
+                            st.error(f"Error: {result['error']}")
+                
                 # Generate final report
                 if successful_analyses or failed_analyses:
                     st.subheader("📋 Final Unified Report")
@@ -287,8 +403,6 @@ def main():
                             logger.info(f"Report input created: {len(report_input)} characters")
                             
                             # Call report maker assistant
-                            api_key = st.secrets["openai_api_key"]
-                            
                             async def generate_report():
                                 logger.info("Starting report generation")
                                 return await call_assistant(
@@ -320,8 +434,8 @@ def main():
                             logger.error(f"Report generation error: {str(e)}")
             
             except Exception as e:
-                st.error(f"❌ An error occurred: {str(e)}")
-                logger.error(f"Main processing error: {str(e)}")
+                st.error(f"❌ Error during analysis: {str(e)}")
+                logger.error(f"Analysis error: {str(e)}")
         
         except json.JSONDecodeError as e:
             st.error(f"❌ Invalid JSON format: {str(e)}")
