@@ -531,38 +531,15 @@ def main():
                             if report_result["success"]:
                                 st.success("✅ Report generated successfully!")
                                 
-                                # Copy to clipboard button
+                                # Use Streamlit's built-in copy functionality
                                 st.subheader("📋 Final Report")
+                                st.markdown("**Click the copy button (📋) in the top-right corner of the code block below:**")
                                 
-                                # JavaScript to copy content to clipboard
-                                report_content = report_result["content"]
+                                # Display report in code block with copy button
+                                st.code(report_result["content"], language="markdown")
                                 
-                                # Create copy button using streamlit components
-                                col1, col2 = st.columns([1, 4])
-                                
-                                with col1:
-                                    if st.button("📋 Copy Report", type="primary"):
-                                        # Use streamlit's built-in clipboard functionality
-                                        st.write("Report copied to clipboard!")
-                                        # Store in session state for JavaScript to access
-                                        st.session_state['report_to_copy'] = report_content
-                                
-                                # Add JavaScript to handle clipboard copy
-                                if 'report_to_copy' in st.session_state:
-                                    st.components.v1.html(f"""
-                                    <script>
-                                    navigator.clipboard.writeText(`{st.session_state['report_to_copy'].replace('`', '\\`')}`).then(function() {{
-                                        console.log('Report copied to clipboard!');
-                                    }}).catch(function(err) {{
-                                        console.error('Failed to copy: ', err);
-                                    }});
-                                    </script>
-                                    """, height=0)
-                                    # Clean up session state
-                                    del st.session_state['report_to_copy']
-                                
-                                # Show formatted report for preview
-                                with st.expander("📖 Preview Report"):
+                                # Also show formatted preview
+                                with st.expander("📖 View Formatted Report"):
                                     st.markdown(report_result["content"])
                                 
                                 logger.info("Report generated successfully")
