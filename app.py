@@ -374,6 +374,28 @@ async def generate_report_with_chat(api_key: str, report_input: str) -> Dict[str
     
     return analyses_text
 
+def create_report_input(analysis_results: List[Dict]) -> str:
+    """Prepare input for report maker"""
+    analyses_text = ""
+    successful_count = 0
+    failed_count = 0
+    
+    for result in analysis_results:
+        if result["success"]:
+            analyses_text += f"## Section {result['chunk_index']} Analysis\n\n"
+            analyses_text += result["content"] + "\n\n"
+            successful_count += 1
+        else:
+            analyses_text += f"## Section {result['chunk_index']} - ANALYSIS FAILED\n\n"
+            analyses_text += f"Error: {result['error']}\n\n"
+            failed_count += 1
+    
+    analyses_text += f"\n**Processing Summary:**\n"
+    analyses_text += f"- Successful Analyses: {successful_count}\n"
+    analyses_text += f"- Failed Analyses: {failed_count}\n"
+    
+    return analyses_text
+
 # --- Streamlit UI ---
 def main():
     st.title("🧪 Parallel Analysis Test App")
