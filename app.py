@@ -14,6 +14,14 @@ import time
 from datetime import datetime
 import concurrent.futures
 from typing import List, Dict, Any
+import logging
+
+# Set up detailed logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -189,33 +197,52 @@ def main():
             
             st.success(f"✅ Found {len(chunks)} big chunks to analyze")
             
-            # Display chunks
+            # Show chunks
             with st.expander("📋 Extracted Chunks Preview"):
                 for chunk in chunks:
                     st.write(f"**Chunk {chunk['index']}** ({chunk['small_chunks_count']} small chunks)")
                     st.text(chunk['text'][:200] + "..." if len(chunk['text']) > 200 else chunk['text'])
                     st.markdown("---")
             
+            # Add detailed logging
+            st.subheader("🔍 Processing Logs")
+            log_container = st.container()
+            
+            with log_container:
+                st.info(f"🚀 Starting parallel analysis of {total_chunks} chunks...")
+                st.write(f"**Assistant IDs:**")
+                st.write(f"- Analyzer: `{ANALYZER_ASSISTANT_ID}`")
+                st.write(f"- Report Maker: `{REPORT_MAKER_ASSISTANT_ID}`")
+                st.write(f"**API Key Status:** {'✅ Loaded' if api_key.startswith('sk-') else '❌ Invalid'}")
+                st.write(f"**Chunk Details:**")
+                for chunk in chunks:
+                    st.write(f"- Chunk {chunk['index']}: {len(chunk['text'])} characters")
+            
             # Progress tracking
-            total_chunks = len(chunks)
             progress_bar = st.progress(0)
             status_container = st.empty()
-            results_container = st.empty()
             
             # Start processing
             start_time = time.time()
             
-            with status_container.container():
-                st.info(f"🔄 Starting parallel analysis of {total_chunks} chunks...")
-            
-            # Run parallel processing
-            api_key = st.secrets["openai_api_key"]
-            
-            async def run_analysis():
-                return await process_chunks_parallel(chunks, api_key)
-            
-            # Execute async code
-            analysis_results = asyncio.run(run_analysis())
+            try:
+                # Run parallel processing
+                api_key = st.secrets["openai_api_key"]
+                
+                with st.spinner("🤖 Running parallel analysis..."):
+                    async def run_analysis():
+                        logger.info(f"Starting analysis of {len(chunks)} chunks")
+                        return await process_chunks_parallel(chunks, api_key)
+                    
+                    # Execute async code
+                    analysis_results = asyncio.run(run_analysis())
+                
+                logger.info("Analysis completed")
+                
+            except Exception as e:
+                st.error(f"❌ Error during analysis: {str(e)}")
+                logger.error(f"Analysis error: {str(e)}")
+                return
             
             # Update progress
             progress_bar.progress(1.0)
@@ -250,43 +277,58 @@ def main():
                     with st.expander(f"❌ Chunk {chunk_idx} Analysis (Failed)"):
                         st.error(f"Error: {result['error']}")
             
-            # Generate final report
-            if successful_analyses or failed_analyses:
-                st.subheader("📋 Final Unified Report")
-                
-                with st.spinner("Generating unified report..."):
-                    report_input = create_report_input(analysis_results)
+                # Generate final report
+                if successful_analyses or failed_analyses:
+                    st.subheader("📋 Final Unified Report")
                     
-                    # Call report maker assistant
-                    api_key = st.secrets["openai_api_key"]
-                    
-                    async def generate_report():
-                        return await call_assistant(
-                            api_key=api_key,
-                            assistant_id=REPORT_MAKER_ASSISTANT_ID,
-                            content=report_input,
-                            chunk_index=None
-                        )
-                    
-                    report_result = asyncio.run(generate_report())
-                    
-                    if report_result["success"]:
-                        st.markdown(report_result["content"])
-                        
-                        # Download button
-                        st.download_button(
-                            label="💾 Download Report",
-                            data=report_result["content"],
-                            file_name=f"compliance_audit_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
-                            mime="text/markdown"
-                        )
-                    else:
-                        st.error(f"Failed to generate report: {report_result['error']}")
+                    with st.spinner("📝 Generating unified report..."):
+                        try:
+                            report_input = create_report_input(analysis_results)
+                            logger.info(f"Report input created: {len(report_input)} characters")
+                            
+                            # Call report maker assistant
+                            api_key = st.secrets["openai_api_key"]
+                            
+                            async def generate_report():
+                                logger.info("Starting report generation")
+                                return await call_assistant(
+                                    api_key=api_key,
+                                    assistant_id=REPORT_MAKER_ASSISTANT_ID,
+                                    content=report_input,
+                                    chunk_index=None
+                                )
+                            
+                            report_result = asyncio.run(generate_report())
+                            
+                            if report_result["success"]:
+                                st.markdown(report_result["content"])
+                                logger.info("Report generated successfully")
+                                
+                                # Download button
+                                st.download_button(
+                                    label="💾 Download Report",
+                                    data=report_result["content"],
+                                    file_name=f"compliance_audit_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
+                                    mime="text/markdown"
+                                )
+                            else:
+                                st.error(f"❌ Failed to generate report: {report_result['error']}")
+                                logger.error(f"Report generation failed: {report_result['error']}")
+                                
+                        except Exception as e:
+                            st.error(f"❌ Error generating report: {str(e)}")
+                            logger.error(f"Report generation error: {str(e)}")
             
+            except Exception as e:
+                st.error(f"❌ An error occurred: {str(e)}")
+                logger.error(f"Main processing error: {str(e)}")
+        
         except json.JSONDecodeError as e:
-            st.error(f"Invalid JSON format: {str(e)}")
+            st.error(f"❌ Invalid JSON format: {str(e)}")
+            logger.error(f"JSON decode error: {str(e)}")
         except Exception as e:
-            st.error(f"An error occurred: {str(e)}")
+            st.error(f"❌ An error occurred: {str(e)}")
+            logger.error(f"General error: {str(e)}")
 
 if __name__ == "__main__":
     main()
