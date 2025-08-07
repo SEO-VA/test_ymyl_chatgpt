@@ -809,42 +809,34 @@ def main():
 if st.button("🚀 Process URL", type="primary", use_container_width=True):
     if not url:
         st.error("Please enter a URL to process")
-        return
+    else:
+        with st.status("Extracting content", state="running") as status_box:
+            extractor = ContentExtractor()
+            success, content, error = extractor.extract_content(url)
+            if not success:
+                status_box.update(label=f"❌ Content extraction failed: {error}", state="error")
+                st.error(f"Content extraction failed: {error}")
+            else:
+                status_box.update(label="Sending content to Chunk Norris", state="running")
+                processor = ChunkProcessor()
+                success, json_output, error = processor.process_content(content)
+                if not success:
+                    status_box.update(label=f"❌ Chunking failed: {error}", state="error")
+                    st.error(f"Chunking failed: {error}")
+                else:
+                    status_box.update(label="You are not waiting, Chunk Norris is waiting for you...", state="running")
+                    time.sleep(1.5)  # Optional pause for user experience
+                    status_box.update(label="✅ Chunking done!", state="complete")
 
-    # Create a user-friendly visual status area
-    with st.status("Extracting content", state="running") as status_box:
-        # Content extraction
-        extractor = ContentExtractor()
-        success, content, error = extractor.extract_content(url)
-        if not success:
-            status_box.update(label=f"❌ Content extraction failed: {error}", state="error")
-            st.error(f"Content extraction failed: {error}")
-            return
+                    # Save results in session
+                    st.session_state['latest_result'] = {
+                        'success': True,
+                        'url': url,
+                        'extracted_content': content,
+                        'json_output': json_output
+                    }
+                    st.success("Processing completed successfully!")
 
-        status_box.update(label="Sending content to Chunk Norris", state="running")
-
-        # Chunking
-        processor = ChunkProcessor()
-        success, json_output, error = processor.process_content(content)
-        if not success:
-            status_box.update(label=f"❌ Chunking failed: {error}", state="error")
-            st.error(f"Chunking failed: {error}")
-            return
-
-        # Waiting message
-        status_box.update(label="You are not waiting, Chunk Norris is waiting for you...", state="running")
-
-        # Final update once everything succeeded
-        status_box.update(label="✅ Chunking done!", state="complete")
-
-    # Save results in session
-    st.session_state['latest_result'] = {
-        'success': True,
-        'url': url,
-        'extracted_content': content,
-        'json_output': json_output
-    }
-    st.success("Processing completed successfully!")
 
 
     with col2:
