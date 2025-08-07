@@ -767,7 +767,7 @@ async def process_ai_analysis(json_output, api_key, log_callback=None):
 
 # --- Streamlit UI ---
 def main():
-    st.title("🔄 Content Processor with AI Analysis")
+    st.title("🕵 Content Processor with AI Analysis")
     st.markdown("**Automatically extract content from websites, generate JSON chunks, and perform YMYL compliance analysis**")
 
     # Sidebar configuration
@@ -853,10 +853,10 @@ def main():
     with col2:
         st.subheader("ℹ️ How it works")
         st.markdown("""
-1. **Extract**: Fetch and parse the page.
+1. **Extract**: Extract the content.
 2. **Chunk**: Send extracted text to Chunk Norris.
-3. **Wait**: Spinner indicates Chunk Norris is working.
-4. **Done**: Chunking complete, view results below.
+3. **YMYL Analysis**: YMYL audit of the content with AI.
+4. **Done**: Output complete report.
 """)
         st.info("💡 **New**: AI-powered YMYL compliance analysis available!")
 
