@@ -878,38 +878,28 @@ def main():
                     return
                 
                 # Enhanced Processing Logs Section
-st.subheader("🔍 Processing Logs")
-
-# 1. Create one placeholder per chunk, initially showing a gray bullet
-status_placeholders = []
-for chunk in chunks:
-    ph = st.empty()
-    ph.info(f"⚪ Chunk {chunk['index']}: {len(chunk['text']):,} characters")
-    status_placeholders.append(ph)
-
-# 2. Define an async helper to run and update each placeholder as chunks complete
-async def run_and_update(chunks, api_key, placeholders):
-    tasks = {
-        asyncio.create_task(
-            call_assistant(api_key, ANALYZER_ASSISTANT_ID, chunk["text"], chunk["index"])
-        ): idx
-        for idx, chunk in enumerate(chunks)
-    }
-    results = []
-    for future in asyncio.as_completed(tasks):
-        result = await future
-        idx = tasks[future]
-        placeholders[idx].success(
-            f"✅ Chunk {result['chunk_index']}: {len(chunks[idx]['text']):,} characters"
-        )
-        results.append(result)
-    return results
-
-# 3. Run the async helper under a spinner
-with st.spinner("🤖 Running parallel analysis…"):
-    analysis_details = asyncio.run(
-        run_and_update(chunks, api_key, status_placeholders)
-    )
+                st.subheader("🔍 Processing Logs")
+                log_container = st.container()
+                
+                with log_container:
+                    st.info(f"🚀 Starting parallel analysis of {len(chunks)} chunks...")
+                    st.write("**Assistant IDs:**")
+                    st.write(f"- Analyzer: `{ANALYZER_ASSISTANT_ID}`")
+                    st.write("- Report Maker: `Simple Concatenation (No AI)`")
+                    st.write(f"**API Key Status:** {'✅ Loaded' if api_key.startswith('sk-') else '❌ Invalid'}")
+                    st.write("**Chunk Details:**")
+                    for chunk in chunks:
+                        st.write(f"- Chunk {chunk['index']}: {len(chunk['text']):,} characters")
+                
+                # Progress tracking
+                total_chunks = len(chunks)
+                progress_bar = st.progress(0)
+                status_container = st.empty()
+                
+                # Start processing with timing
+                start_time = time.time()
+                
+                with st.spinner("🤖 Running parallel analysis..."):
                     # Run AI analysis
                     success, ai_result, analysis_details = asyncio.run(process_ai_analysis(
                         result['json_output'], 
