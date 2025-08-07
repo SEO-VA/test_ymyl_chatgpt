@@ -878,39 +878,39 @@ def main():
                     return
                 
                 # Enhanced Processing Logs Section
-				st.subheader("🔍 Processing Logs")
-				
-				# 1. Create one placeholder per chunk, initially showing a gray bullet
-				status_container = st.container()
-				status_placeholders = []
-				for chunk in chunks:
-					ph = status_container.empty()
-					ph.info(f"⚪ Chunk {chunk['index']}: {len(chunk['text']):,} characters")
-					status_placeholders.append(ph)
-				
-				# 2. Kick off all the assistant calls and update UI as each one completes
-				async def run_and_update():
-					# Map asyncio.Tasks → their position in the list
-					tasks = {
-						asyncio.create_task(
-							call_assistant(api_key, ANALYZER_ASSISTANT_ID, chunk["text"], chunk["index"])
-						): idx
-						for idx, chunk in enumerate(chunks)
-					}
-					results = []
-					for future in asyncio.as_completed(tasks):
-						result = await future
-						idx = tasks[future]
-						# mark that slot as done
-						status_placeholders[idx].success(
-							f"✅ Chunk {result['chunk_index']}: {len(chunks[idx]['text']):,} characters"
-						)
-						results.append(result)
-					return results
-				
-				# 3. Run it with a spinner
-				with st.spinner("🤖 Running parallel analysis…"):
-					analysis_details = asyncio.run(run_and_update())
+st.subheader("🔍 Processing Logs")
+
+# 1. Create one placeholder per chunk, initially showing a gray bullet
+status_container = st.container()
+status_placeholders = []
+for chunk in chunks:
+    ph = status_container.empty()
+    ph.info(f"⚪ Chunk {chunk['index']}: {len(chunk['text']):,} characters")
+    status_placeholders.append(ph)
+
+# 2. Kick off all the assistant calls and update UI as each one completes
+async def run_and_update():
+    # Map asyncio.Tasks → their position in the list
+    tasks = {
+        asyncio.create_task(
+            call_assistant(api_key, ANALYZER_ASSISTANT_ID, chunk["text"], chunk["index"])
+        ): idx
+        for idx, chunk in enumerate(chunks)
+    }
+    results = []
+    for future in asyncio.as_completed(tasks):
+        result = await future
+        idx = tasks[future]
+        # mark that slot as done
+        status_placeholders[idx].success(
+            f"✅ Chunk {result['chunk_index']}: {len(chunks[idx]['text']):,} characters"
+        )
+        results.append(result)
+    return results
+
+# 3. Run it with a spinner
+with st.spinner("🤖 Running parallel analysis…"):
+    analysis_details = asyncio.run(run_and_update())
                     # Run AI analysis
                     success, ai_result, analysis_details = asyncio.run(process_ai_analysis(
                         result['json_output'], 
