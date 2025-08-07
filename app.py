@@ -374,27 +374,45 @@ async def generate_report_with_chat(api_key: str, report_input: str) -> Dict[str
     
     return analyses_text
 
-def create_report_input(analysis_results: List[Dict]) -> str:
-    """Prepare input for report maker"""
-    analyses_text = ""
-    successful_count = 0
-    failed_count = 0
+def create_final_report_simple(analysis_results: List[Dict]) -> str:
+    """Create final report by simply concatenating all analyses"""
+    successful_analyses = [r for r in analysis_results if r["success"]]
+    failed_analyses = [r for r in analysis_results if not r["success"]]
     
-    for result in analysis_results:
-        if result["success"]:
-            analyses_text += f"## Section {result['chunk_index']} Analysis\n\n"
-            analyses_text += result["content"] + "\n\n"
-            successful_count += 1
-        else:
-            analyses_text += f"## Section {result['chunk_index']} - ANALYSIS FAILED\n\n"
-            analyses_text += f"Error: {result['error']}\n\n"
-            failed_count += 1
+    # Build report header
+    report = f"""# YMYL Compliance Audit Report
+
+**Audit Date:** {datetime.now().strftime('%Y-%m-%d')}
+**Content Type:** Online Casino/Gambling  
+**Analysis Method:** Section-by-section E-E-A-T compliance review
+
+---
+
+"""
     
-    analyses_text += f"\n**Processing Summary:**\n"
-    analyses_text += f"- Successful Analyses: {successful_count}\n"
-    analyses_text += f"- Failed Analyses: {failed_count}\n"
+    # Add all successful analyses
+    for result in sorted(successful_analyses, key=lambda x: x["chunk_index"]):
+        report += result["content"] + "\n\n---\n\n"
     
-    return analyses_text
+    # Add failed analyses if any
+    if failed_analyses:
+        report += "## Analysis Errors\n\n"
+        for result in sorted(failed_analyses, key=lambda x: x["chunk_index"]):
+            report += f"**Section {result['chunk_index']}:** Analysis failed - {result['error']}\n\n"
+        report += "---\n\n"
+    
+    # Add processing summary
+    report += f"""## Processing Summary
+
+**✅ Sections Successfully Analyzed:** {len(successful_analyses)}  
+**❌ Sections with Analysis Errors:** {len(failed_analyses)}  
+**📊 Total Sections:** {len(analysis_results)}
+
+*Report generated through automated YMYL compliance analysis system*  
+*Generated on {datetime.now().strftime('%Y-%m-%d at %H:%M:%S')}*
+"""
+    
+    return report
 
 # --- Streamlit UI ---
 def main():
@@ -512,44 +530,34 @@ def main():
                         with st.expander(f"❌ Chunk {chunk_idx} Analysis (Failed)"):
                             st.error(f"Error: {result['error']}")
                 
-                # Generate final report
+                # Generate final report by simple concatenation
                 if successful_analyses or failed_analyses:
                     st.subheader("📋 Final Unified Report")
                     
-                    with st.spinner("📝 Generating unified report..."):
+                    with st.spinner("📝 Assembling final report..."):
                         try:
-                            report_input = create_report_input(analysis_results)
-                            logger.info(f"Report input created: {len(report_input)} characters")
+                            # Simple concatenation - no AI needed!
+                            final_report = create_final_report_simple(analysis_results)
+                            logger.info(f"Report assembled: {len(final_report)} characters")
                             
-                            # Call report maker using fast Chat Completions
-                            async def generate_report():
-                                logger.info("Starting fast report generation")
-                                return await generate_report_with_chat(api_key, report_input)
+                            st.success("✅ Report assembled successfully!")
                             
-                            report_result = asyncio.run(generate_report())
+                            # Use Streamlit's built-in copy functionality
+                            st.subheader("📋 Final Report")
+                            st.markdown("**Click the copy button (📋) in the top-right corner of the code block below:**")
                             
-                            if report_result["success"]:
-                                st.success("✅ Report generated successfully!")
-                                
-                                # Use Streamlit's built-in copy functionality
-                                st.subheader("📋 Final Report")
-                                st.markdown("**Click the copy button (📋) in the top-right corner of the code block below:**")
-                                
-                                # Display report in code block with copy button
-                                st.code(report_result["content"], language="markdown")
-                                
-                                # Also show formatted preview
-                                with st.expander("📖 View Formatted Report"):
-                                    st.markdown(report_result["content"])
-                                
-                                logger.info("Report generated successfully")
-                            else:
-                                st.error(f"❌ Failed to generate report: {report_result['error']}")
-                                logger.error(f"Report generation failed: {report_result['error']}")
-                                
+                            # Display report in code block with copy button
+                            st.code(final_report, language="markdown")
+                            
+                            # Also show formatted preview
+                            with st.expander("📖 View Formatted Report"):
+                                st.markdown(final_report)
+                            
+                            logger.info("Report display completed successfully")
+                            
                         except Exception as e:
-                            st.error(f"❌ Error generating report: {str(e)}")
-                            logger.error(f"Report generation error: {str(e)}")
+                            st.error(f"❌ Error assembling report: {str(e)}")
+                            logger.error(f"Report assembly error: {str(e)}")
             
             except Exception as e:
                 st.error(f"❌ Error during analysis: {str(e)}")
