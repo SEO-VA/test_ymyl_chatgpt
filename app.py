@@ -53,7 +53,7 @@ st.set_page_config(
 # --- AI Processing Configuration ---
 ANALYZER_ASSISTANT_ID = "asst_WzODK9EapCaZoYkshT6x9xEH"
 
-# --- Component 1: Updated Content Extractor ---
+# --- Component 1: Content Extractor (No Changes) ---
 class ContentExtractor:
     def __init__(self):
         self.session = requests.Session()
@@ -146,7 +146,7 @@ class ContentExtractor:
         except Exception as e:
             return False, None, f"Error processing content: {e}"
 
-# --- Component 2: The Final, Upgraded Chunk Processor ---
+# --- Component 2: Chunk Processor (No Changes) ---
 class ChunkProcessor:
     def __init__(self, log_callback=None):
         self.driver = None
@@ -231,8 +231,7 @@ class ChunkProcessor:
             self.driver.quit()
             self.log("✅ Browser closed.")
 
-# --- Component 3: AI Processing Functions ---
-
+# --- Component 3: Export & AI Functions (No Changes) ---
 def convert_to_html(markdown_content):
     """Convert markdown report to styled HTML"""
     try:
@@ -693,7 +692,7 @@ Error: {result.get('error', 'Unknown error')}
         logger.error(f"Error creating final report: {e}")
         return f"Error generating report: {e}"
 
-# --- Main Workflow Function ---
+# --- Main Workflow Function (No Changes) ---
 def process_url_workflow_with_logging(url, log_callback=None):
     result = {'success': False, 'url': url, 'extracted_content': None, 'json_output': None, 'error': None}
     
@@ -726,6 +725,7 @@ def process_url_workflow_with_logging(url, log_callback=None):
         result['error'] = f"An unexpected workflow error occurred: {str(e)}"
         return result
 
+# --- AI Analysis Workflow (No Changes) ---
 async def process_ai_analysis(json_output, api_key, log_callback=None):
     """Process AI compliance analysis on chunked content."""
     def log(message):
@@ -765,13 +765,13 @@ async def process_ai_analysis(json_output, api_key, log_callback=None):
         log(f"❌ {error_msg}")
         return False, error_msg, None
 
-# --- Streamlit UI ---
+# --- Streamlit UI (UPDATED) ---
 def main():
     st.title("🔄 Content Processor with AI Analysis")
     st.markdown("**Automatically extract content from websites, generate JSON chunks, and perform YMYL compliance analysis**")
     
     # Sidebar configuration
-    debug_mode = st.sidebar.checkbox("🐛 Debug Mode", value=True, help="Show detailed processing logs")
+    debug_mode = st.sidebar.checkbox("🐛 Debug Mode", value=False, help="Show detailed, technical processing logs")
     
     # API Key configuration
     st.sidebar.markdown("### 🔑 AI Analysis Configuration")
@@ -811,28 +811,54 @@ def main():
                 st.error("Please enter a URL to process")
                 return
             
-            with st.spinner("Processing your request... This may take several minutes for large content."):
-                log_placeholder = st.empty()
-                log_messages = []
+            # Clear previous results before starting a new run
+            if 'latest_result' in st.session_state:
+                del st.session_state['latest_result']
+            if 'ai_analysis_result' in st.session_state:
+                del st.session_state['ai_analysis_result']
 
-                def log_callback(message):
-                    # Fetches current time based on user's location
-                    utc_now = datetime.now(pytz.utc)
-                    cest_tz = pytz.timezone('Europe/Malta')
-                    cest_now = utc_now.astimezone(cest_tz)
-                    log_messages.append(f"`{cest_now.strftime('%H:%M:%S')} (CEST)`: {message}")
-                    with log_placeholder.container():
-                        st.info("\n\n".join(log_messages))
-                
-                # Clear previous results before starting a new run
-                if 'latest_result' in st.session_state:
-                    del st.session_state['latest_result']
-                if 'ai_analysis_result' in st.session_state:
-                    del st.session_state['ai_analysis_result']
-                
-                result = process_url_workflow_with_logging(url, log_callback if debug_mode else None)
+            result = None
+            
+            # --- DUAL LOGGING IMPLEMENTATION ---
+            if debug_mode:
+                # --- DEBUG MODE: Detailed, timestamped log ---
+                with st.spinner("Processing your request... This may take several minutes."):
+                    log_placeholder = st.empty()
+                    log_messages = []
+
+                    def debug_log_callback(message):
+                        utc_now = datetime.now(pytz.utc)
+                        cest_tz = pytz.timezone('Europe/Malta')
+                        cest_now = utc_now.astimezone(cest_tz)
+                        log_messages.append(f"`{cest_now.strftime('%H:%M:%S')} (CEST)`: {message}")
+                        with log_placeholder.container():
+                            st.info("\n\n".join(log_messages))
+                    
+                    result = process_url_workflow_with_logging(url, debug_log_callback)
+
+            else:
+                # --- USER MODE: Clean, friendly st.status log ---
+                with st.status("Extracting content...", expanded=True) as status:
+                    
+                    def user_log_callback(message):
+                        # Map technical messages to user-friendly status updates
+                        if "Initializing chunk processor" in message:
+                            status.update(label="Sending content to Chunk Norris...")
+                        elif "Waiting for results section" in message:
+                            status.update(label="You are not waiting, Chunk Norris is waiting for you...")
+                    
+                    result = process_url_workflow_with_logging(url, user_log_callback)
+                    
+                    # Set final status after workflow completion
+                    if result and result['success']:
+                        status.update(label="Chunking done!", state="complete", expanded=False)
+                    elif result:
+                        error_message = result.get('error', 'An unknown error occurred.')
+                        status.update(label=f"Error: {error_message}", state="error", expanded=True)
+
+            # --- COMMON POST-PROCESSING LOGIC ---
+            if result:
                 st.session_state['latest_result'] = result
-
                 if result['success']:
                     st.success("Processing completed successfully!")
                 else:
@@ -841,15 +867,14 @@ def main():
     with col2:
         st.subheader("ℹ️ How it works")
         st.markdown("""
-        1.  **Extract**: Extract the content from the page.
-        2.  **Chunk**: Submits the content to Chunk Norris to improve formatting.
-        3.  **Get AI-formatted content**: Retrieve JSON chunked formatted content
-        5.  **YMYL Analysis**: Process chunks with AI for YMYL compliance review.
-        6.  **Report**: Shows results in the tabs below.
+        1.  **Extract**: Extracts structured content from the page.
+        2.  **Chunk**: Submits the content to `chunk.dejan.ai` for processing.
+        3.  **Analyze**: Optionally, runs AI compliance analysis on the chunks.
+        4.  **Report**: Shows results in the tabs below.
         """)
-        st.info("💡 **New**: This version includes AI-powered YMYL compliance analysis!")
+        st.info("💡 **New**: Now with AI-powered YMYL compliance analysis and professional reporting!")
 
-    # Results Display
+    # --- Results Display (No changes below this line) ---
     if 'latest_result' in st.session_state and st.session_state['latest_result'].get('success'):
         result = st.session_state['latest_result']
         st.markdown("---")
@@ -911,10 +936,10 @@ def main():
                             st.metric("Total Chunks", total_chunks)
                         with col2:
                             st.metric("Successful", len(successful_analyses), 
-                                     delta=len(successful_analyses) if len(successful_analyses) == total_chunks else None)
+                                      delta=len(successful_analyses) if len(successful_analyses) == total_chunks else None)
                         with col3:
                             st.metric("Failed", len(failed_analyses), 
-                                     delta=f"-{len(failed_analyses)}" if len(failed_analyses) > 0 else None)
+                                      delta=f"-{len(failed_analyses)}" if len(failed_analyses) > 0 else None)
                         
                         st.success(f"✅ Parallel analysis completed in {processing_time:.2f} seconds")
                     
@@ -928,7 +953,7 @@ def main():
                         'successful_count': len(successful_analyses),
                         'failed_count': len(failed_analyses)
                     }
-                    
+                
                 else:
                     st.session_state['ai_analysis_result'] = {
                         'success': False,
@@ -1093,7 +1118,7 @@ def main():
                         colD.metric("Processing Time", f"{processing_time:.2f}s")
                         colE.metric("Successful Analyses", successful_analyses)
                         colF.metric("Failed Analyses", failed_analyses, 
-                                   delta=f"-{failed_analyses}" if failed_analyses > 0 else None)
+                                    delta=f"-{failed_analyses}" if failed_analyses > 0 else None)
                         colG.metric("Success Rate", f"{(successful_analyses/(successful_analyses+failed_analyses)*100):.1f}%")
                         
                         # Performance insights
