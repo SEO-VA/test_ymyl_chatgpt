@@ -572,11 +572,11 @@ def main():
                         st.info("\n\n".join(ai_log_messages))
 
                 # Run AI analysis
-                success, ai_result, analysis_details = await process_ai_analysis(
+                success, ai_result, analysis_details = asyncio.run(process_ai_analysis(
                     result['json_output'], 
                     api_key, 
                     ai_log_callback if debug_mode else None
-                )
+                ))
                 
                 if success:
                     st.session_state['ai_analysis_result'] = {
