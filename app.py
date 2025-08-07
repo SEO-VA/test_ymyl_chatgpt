@@ -867,7 +867,7 @@ def main():
         st.subheader("📊 Results")
         
         # AI Analysis Button
-        if api_key and st.button("🤖 Process with YMYL AI Compliance Analysis", type="secondary", use_container_width=True):
+        if api_key and st.button("🤖 Process with AI Compliance Analysis", type="secondary", use_container_width=True):
             try:
                 # Parse JSON and extract chunks first
                 json_data = json.loads(result['json_output'])
@@ -882,7 +882,11 @@ def main():
                 log_container = st.container()
                 
                 with log_container:
-                    st.info(f"🚀 Starting audit")
+                    st.info(f"🚀 Starting parallel analysis of {len(chunks)} chunks...")
+                    st.write("**Assistant IDs:**")
+                    st.write(f"- Analyzer: `{ANALYZER_ASSISTANT_ID}`")
+                    st.write("- Report Maker: `Simple Concatenation (No AI)`")
+                    st.write(f"**API Key Status:** {'✅ Loaded' if api_key.startswith('sk-') else '❌ Invalid'}")
                     st.write("**Chunk Details:**")
                     for chunk in chunks:
                         st.write(f"- Chunk {chunk['index']}: {len(chunk['text']):,} characters")
@@ -895,7 +899,7 @@ def main():
                 # Start processing with timing
                 start_time = time.time()
                 
-                with st.spinner("🤖 Running audit..."):
+                with st.spinner("🤖 Running parallel analysis..."):
                     # Run AI analysis
                     success, ai_result, analysis_details = asyncio.run(process_ai_analysis(
                         result['json_output'], 
