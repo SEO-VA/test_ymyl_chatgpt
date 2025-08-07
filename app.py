@@ -765,9 +765,9 @@ async def process_ai_analysis(json_output, api_key, log_callback=None):
         log(f"❌ {error_msg}")
         return False, error_msg, None
 
-# --- Streamlit UI (UPDATED) ---
+# --- Streamlit UI ---
 def main():
-    st.title("🔄 Content Processor with AI Analysis")
+    st.title("🕵 YMYL Audit Tool")
     st.markdown("**Automatically extract content from websites, generate JSON chunks, and perform YMYL compliance analysis**")
     
     # Sidebar configuration
@@ -822,7 +822,7 @@ def main():
             # --- DUAL LOGGING IMPLEMENTATION ---
             if debug_mode:
                 # --- DEBUG MODE: Detailed, timestamped log ---
-                with st.spinner("Processing your request... This may take several minutes."):
+                with st.spinner("Processing... See detailed logs below."):
                     log_placeholder = st.empty()
                     log_messages = []
 
@@ -830,31 +830,54 @@ def main():
                         utc_now = datetime.now(pytz.utc)
                         cest_tz = pytz.timezone('Europe/Malta')
                         cest_now = utc_now.astimezone(cest_tz)
-                        log_messages.append(f"`{cest_now.strftime('%H:%M:%S')} (CEST)`: {message}")
+                        log_messages.append(f"`{cest_now.strftime('%H:%M:%S')}`: {message}")
                         with log_placeholder.container():
                             st.info("\n\n".join(log_messages))
                     
                     result = process_url_workflow_with_logging(url, debug_log_callback)
 
             else:
-                # --- USER MODE: Clean, friendly st.status log ---
-                with st.status("Extracting content...", expanded=True) as status:
+                # --- USER MODE: Persistent, sequential log ---
+                log_steps = []
+                log_container = st.empty()
+
+                def update_log_display():
+                    # Use two spaces and a newline for markdown line breaks
+                    log_container.markdown("  \n".join(log_steps))
+
+                def user_log_callback(message):
+                    # This function acts as a state machine based on log messages
+                    current_last_step = log_steps[-1] if log_steps else ""
+
+                    if "Content extracted" in message and "✅" not in current_last_step:
+                        log_steps[-1] = "✅ Extracting content... Done."
+                        log_steps.append("⚙️ Sending content to Chunk Norris...")
+                        update_log_display()
                     
-                    def user_log_callback(message):
-                        # Map technical messages to user-friendly status updates
-                        if "Initializing chunk processor" in message:
-                            status.update(label="Sending content to Chunk Norris...")
-                        elif "Waiting for results section" in message:
-                            status.update(label="You are not waiting, Chunk Norris is waiting for you...")
+                    elif "Waiting for results section" in message and "⏳" not in current_last_step:
+                        log_steps[-1] = "✅ Sending content to Chunk Norris... Done."
+                        log_steps.append("⏳ You are not waiting, Chunk Norris is waiting for you...")
+                        update_log_display()
                     
-                    result = process_url_workflow_with_logging(url, user_log_callback)
-                    
-                    # Set final status after workflow completion
-                    if result and result['success']:
-                        status.update(label="Chunking done!", state="complete", expanded=False)
-                    elif result:
-                        error_message = result.get('error', 'An unknown error occurred.')
-                        status.update(label=f"Error: {error_message}", state="error", expanded=True)
+                    elif "Workflow Complete" in message and "✅" not in current_last_step:
+                        log_steps[-1] = "✅ Chunking done!"
+                        update_log_display()
+
+                # Start the process by adding the first step
+                log_steps.append("⚙️ Extracting content...")
+                update_log_display()
+                
+                result = process_url_workflow_with_logging(url, user_log_callback)
+
+                # Final check in case of error during the workflow
+                if result and not result['success']:
+                    error_message = result.get('error', 'An unknown error occurred.')
+                    # Update the last step to show failure, or add a new error line
+                    if log_steps:
+                        log_steps[-1] = f"❌ {log_steps[-1].replace('⚙️', '').replace('⏳', '').strip()}"
+                    log_steps.append(f"**Error:** {error_message}")
+                    update_log_display()
+
 
             # --- COMMON POST-PROCESSING LOGIC ---
             if result:
@@ -867,9 +890,9 @@ def main():
     with col2:
         st.subheader("ℹ️ How it works")
         st.markdown("""
-        1.  **Extract**: Extracts structured content from the page.
-        2.  **Chunk**: Submits the content to `chunk.dejan.ai` for processing.
-        3.  **Analyze**: Optionally, runs AI compliance analysis on the chunks.
+        1.  **Extract**: Extracts content from URL.
+        2.  **Chunk**: Submits the content to Chunk Norris for processing.
+        3.  **Analyze**: Runs AI compliance analysis on the chunks.
         4.  **Report**: Shows results in the tabs below.
         """)
         st.info("💡 **New**: Now with AI-powered YMYL compliance analysis and professional reporting!")
@@ -1161,6 +1184,3 @@ def main():
         # Show API key reminder if not available
         if not api_key:
             st.info("💡 **Tip**: Add your OpenAI API key to enable AI compliance analysis!")
-
-if __name__ == "__main__":
-    main()
