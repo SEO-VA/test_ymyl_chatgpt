@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 # --- Streamlit Page Configuration ---
 st.set_page_config(
-    page_title="Content Processor with AI Analysis",
+    page_title="YMYL Audit Tool",
     page_icon="🚀",
     layout="wide",
 )
@@ -803,7 +803,7 @@ def main():
     with col1:
         url = st.text_input(
             "Enter the URL to process:",
-            placeholder="https://www.casinohawks.com/bonuses/bonus-code",
+            placeholder="",
             help="Enter a complete URL including http:// or https://"
         )
         if st.button("🚀 Process URL", type="primary", use_container_width=True):
