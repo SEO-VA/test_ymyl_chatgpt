@@ -872,24 +872,20 @@ def main():
                 num_chunks = len(chunks)
                 st.session_state['chunk_done'] = [False] * num_chunks
                 
-                # Define chunk lights renderer
-                lights_placeholder = st.empty()
-                def render_chunk_lights():
-                    lights_per_row = 10
-                    rows = []
-                    for start in range(0, num_chunks, lights_per_row):
-                        icons = [
-                            "🟢" if st.session_state['chunk_done'][i] else "⚪"
-                            for i in range(start, min(start + lights_per_row, num_chunks))
-                        ]
-                        rows.append(" ".join(icons))
-                    lights_placeholder.write("\n".join(rows))
-                
-                # Initial render of grey lights
-                render_chunk_lights()
-                
                 # Processing info
                 st.info("🚀 Starting the analysis")
+                
+                # Display chunk details with progress lights
+                chunk_details_placeholder = st.empty()
+                def render_chunk_details():
+                    with chunk_details_placeholder.container():
+                        st.write("**Chunk Details:**")
+                        for i, chunk in enumerate(chunks):
+                            light = "🟢" if st.session_state['chunk_done'][i] else "⚪"
+                            st.write(f"{light} Chunk {chunk['index']}: {len(chunk['text']):,} characters")
+                
+                # Initial render with grey lights
+                render_chunk_details()
                 
                 # Progress tracking
                 progress_bar = st.progress(0.0)
@@ -897,7 +893,7 @@ def main():
                 # Define callback for chunk completion
                 def chunk_callback(idx):
                     st.session_state['chunk_done'][idx] = True
-                    render_chunk_lights()
+                    render_chunk_details()
                     done = sum(st.session_state['chunk_done'])
                     progress_bar.progress(done / num_chunks)
                 
