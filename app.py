@@ -559,42 +559,94 @@ def main():
         
         # AI Analysis Button
         if api_key and st.button("🤖 Process with AI Compliance Analysis", type="secondary", use_container_width=True):
-            with st.spinner("Running AI compliance analysis... This may take several minutes."):
-                ai_log_placeholder = st.empty()
-                ai_log_messages = []
-
-                def ai_log_callback(message):
-                    utc_now = datetime.now(pytz.utc)
-                    cest_tz = pytz.timezone('Europe/Malta')
-                    cest_now = utc_now.astimezone(cest_tz)
-                    ai_log_messages.append(f"`{cest_now.strftime('%H:%M:%S')} (CEST)`: {message}")
-                    with ai_log_placeholder.container():
-                        st.info("\n\n".join(ai_log_messages))
-
-                # Run AI analysis
-                success, ai_result, analysis_details = asyncio.run(process_ai_analysis(
-                    result['json_output'], 
-                    api_key, 
-                    ai_log_callback if debug_mode else None
-                ))
+            try:
+                # Parse JSON and extract chunks first
+                json_data = json.loads(result['json_output'])
+                chunks = extract_big_chunks(json_data)
                 
-                if success:
+                if not chunks:
+                    st.error("No chunks found in JSON data")
+                    return
+                
+                # Enhanced Processing Logs Section
+                st.subheader("🔍 Processing Logs")
+                log_container = st.container()
+                
+                with log_container:
+                    st.info(f"🚀 Starting parallel analysis of {len(chunks)} chunks...")
+                    st.write("**Assistant IDs:**")
+                    st.write(f"- Analyzer: `{ANALYZER_ASSISTANT_ID}`")
+                    st.write("- Report Maker: `Simple Concatenation (No AI)`")
+                    st.write(f"**API Key Status:** {'✅ Loaded' if api_key.startswith('sk-') else '❌ Invalid'}")
+                    st.write("**Chunk Details:**")
+                    for chunk in chunks:
+                        st.write(f"- Chunk {chunk['index']}: {len(chunk['text']):,} characters")
+                
+                # Progress tracking
+                total_chunks = len(chunks)
+                progress_bar = st.progress(0)
+                status_container = st.empty()
+                
+                # Start processing with timing
+                start_time = time.time()
+                
+                with st.spinner("🤖 Running parallel analysis..."):
+                    # Run AI analysis
+                    success, ai_result, analysis_details = asyncio.run(process_ai_analysis(
+                        result['json_output'], 
+                        api_key, 
+                        None  # Disable callback since we have enhanced UI
+                    ))
+                
+                # Update progress
+                progress_bar.progress(1.0)
+                processing_time = time.time() - start_time
+                
+                # Display processing summary
+                if success and analysis_details:
+                    successful_analyses = [r for r in analysis_details if r.get("success")]
+                    failed_analyses = [r for r in analysis_details if not r.get("success")]
+                    
+                    with status_container.container():
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Total Chunks", total_chunks)
+                        with col2:
+                            st.metric("Successful", len(successful_analyses), 
+                                     delta=len(successful_analyses) if len(successful_analyses) == total_chunks else None)
+                        with col3:
+                            st.metric("Failed", len(failed_analyses), 
+                                     delta=f"-{len(failed_analyses)}" if len(failed_analyses) > 0 else None)
+                        
+                        st.success(f"✅ Parallel analysis completed in {processing_time:.2f} seconds")
+                    
+                    # Store results
                     st.session_state['ai_analysis_result'] = {
                         'success': True,
                         'report': ai_result,
-                        'details': analysis_details
+                        'details': analysis_details,
+                        'processing_time': processing_time,
+                        'total_chunks': total_chunks,
+                        'successful_count': len(successful_analyses),
+                        'failed_count': len(failed_analyses)
                     }
-                    st.success("✅ AI compliance analysis completed!")
+                    
                 else:
                     st.session_state['ai_analysis_result'] = {
                         'success': False,
-                        'error': ai_result
+                        'error': ai_result if not success else 'Unknown error occurred'
                     }
-                    st.error(f"❌ AI analysis failed: {ai_result}")
+                    st.error(f"❌ AI analysis failed: {ai_result if not success else 'Unknown error'}")
+                    
+            except json.JSONDecodeError as e:
+                st.error(f"❌ Invalid JSON format: {str(e)}")
+            except Exception as e:
+                st.error(f"❌ An error occurred during AI analysis: {str(e)}")
+                logger.error(f"AI analysis error: {str(e)}")
 
         # Tabs for results
         if 'ai_analysis_result' in st.session_state and st.session_state['ai_analysis_result'].get('success'):
-            tab1, tab2, tab3, tab4, tab5 = st.tabs(["🎯 AI Compliance Report", "📊 Analysis Details", "🔧 JSON Output", "📄 Extracted Content", "📈 Summary"])
+            tab1, tab2, tab3, tab4, tab5 = st.tabs(["🎯 AI Compliance Report", "📊 Individual Analyses", "🔧 JSON Output", "📄 Extracted Content", "📈 Summary"])
             
             with tab1:
                 st.markdown("### YMYL Compliance Analysis Report")
@@ -611,15 +663,34 @@ def main():
                     st.markdown(ai_report)
             
             with tab2:
-                st.markdown("### Individual Analysis Results")
+                st.markdown("### Individual Chunk Analysis Results")
                 analysis_details = st.session_state['ai_analysis_result']['details']
+                
+                # Processing metrics at top
+                ai_result = st.session_state['ai_analysis_result']
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Processing Time", f"{ai_result.get('processing_time', 0):.2f}s")
+                with col2:
+                    st.metric("Total Chunks", ai_result.get('total_chunks', 0))
+                with col3:
+                    st.metric("Successful", ai_result.get('successful_count', 0))
+                with col4:
+                    st.metric("Failed", ai_result.get('failed_count', 0))
+                
+                st.markdown("---")
+                
+                # Individual chunk results
                 for detail in analysis_details:
                     chunk_idx = detail.get('chunk_index', 'Unknown')
                     if detail.get('success'):
                         with st.expander(f"✅ Chunk {chunk_idx} Analysis (Success)"):
                             st.markdown(detail['content'])
+                            # Show additional metrics if available
+                            if 'tokens_used' in detail:
+                                st.caption(f"Tokens used: {detail['tokens_used']}")
                     else:
-                        with st.expander(f"❌ Chunk {chunk_idx} Analysis (Error)"):
+                        with st.expander(f"❌ Chunk {chunk_idx} Analysis (Failed)"):
                             st.error(f"Error: {detail.get('error', 'Unknown error')}")
             
             with tab3:
@@ -641,22 +712,33 @@ def main():
                     big_chunks = json_data.get('big_chunks', [])
                     total_small_chunks = sum(len(chunk.get('small_chunks', [])) for chunk in big_chunks)
                     
+                    # Content extraction metrics
+                    st.markdown("#### Content Extraction")
                     colA, colB, colC = st.columns(3)
                     colA.metric("Big Chunks", len(big_chunks))
                     colB.metric("Total Small Chunks", total_small_chunks)
                     colC.metric("Content Length", f"{len(result['extracted_content']):,} chars")
                     
-                    # AI Analysis Summary
+                    # AI Analysis metrics
                     if 'ai_analysis_result' in st.session_state and st.session_state['ai_analysis_result'].get('success'):
-                        analysis_details = st.session_state['ai_analysis_result']['details']
-                        successful_analyses = sum(1 for detail in analysis_details if detail.get('success'))
-                        failed_analyses = len(analysis_details) - successful_analyses
+                        st.markdown("#### AI Analysis Performance")
+                        ai_result = st.session_state['ai_analysis_result']
+                        analysis_details = ai_result['details']
+                        successful_analyses = ai_result.get('successful_count', 0)
+                        failed_analyses = ai_result.get('failed_count', 0)
+                        processing_time = ai_result.get('processing_time', 0)
                         
-                        st.markdown("#### AI Analysis Summary")
-                        colD, colE, colF = st.columns(3)
-                        colD.metric("Successful Analyses", successful_analyses, delta=None)
-                        colE.metric("Failed Analyses", failed_analyses, delta=None if failed_analyses == 0 else f"-{failed_analyses}")
-                        colF.metric("Analysis Coverage", f"{(successful_analyses/len(analysis_details)*100):.1f}%")
+                        colD, colE, colF, colG = st.columns(4)
+                        colD.metric("Processing Time", f"{processing_time:.2f}s")
+                        colE.metric("Successful Analyses", successful_analyses)
+                        colF.metric("Failed Analyses", failed_analyses, 
+                                   delta=f"-{failed_analyses}" if failed_analyses > 0 else None)
+                        colG.metric("Success Rate", f"{(successful_analyses/(successful_analyses+failed_analyses)*100):.1f}%")
+                        
+                        # Performance insights
+                        if processing_time > 0 and len(analysis_details) > 0:
+                            avg_time_per_chunk = processing_time / len(analysis_details)
+                            st.info(f"📊 **Performance**: Average {avg_time_per_chunk:.2f}s per chunk | Parallel efficiency achieved")
                         
                 except (json.JSONDecodeError, TypeError):
                     st.warning("Could not parse JSON for statistics.")
