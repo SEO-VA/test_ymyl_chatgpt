@@ -544,7 +544,7 @@ def extract_big_chunks(json_data):
         logger.error(f"Error extracting big chunks: {e}")
         return []
 
-async def call_assistant(api_key, assistant_id, content, chunk_index, callback=None):
+async def call_assistant(api_key, assistant_id, content, chunk_index):
     """Call OpenAI Assistant API for chunk analysis."""
     try:
         client = OpenAI(api_key=api_key)
@@ -579,10 +579,6 @@ async def call_assistant(api_key, assistant_id, content, chunk_index, callback=N
             messages = client.beta.threads.messages.list(thread_id=thread.id)
             response_content = messages.data[0].content[0].text.value
             
-            # Call callback if provided
-            if callback:
-                callback(chunk_index - 1)  # Convert to 0-based index
-            
             logger.info(f"Assistant call completed successfully for chunk {chunk_index}")
             return {
                 "success": True,
@@ -605,7 +601,7 @@ async def call_assistant(api_key, assistant_id, content, chunk_index, callback=N
             "chunk_index": chunk_index
         }
 
-async def process_chunks_parallel(chunks, api_key, callback=None):
+async def process_chunks_parallel(chunks, api_key):
     """Process all chunks in parallel using OpenAI Assistant."""
     try:
         tasks = []
@@ -614,8 +610,7 @@ async def process_chunks_parallel(chunks, api_key, callback=None):
                 api_key=api_key,
                 assistant_id=ANALYZER_ASSISTANT_ID,
                 content=chunk["text"],
-                chunk_index=chunk["index"],
-                callback=callback
+                chunk_index=chunk["index"]
             )
             tasks.append(task)
         
@@ -731,29 +726,43 @@ def process_url_workflow_with_logging(url, log_callback=None):
         result['error'] = f"An unexpected workflow error occurred: {str(e)}"
         return result
 
-async def process_ai_analysis(json_output, api_key, callback=None):
+async def process_ai_analysis(json_output, api_key, log_callback=None):
     """Process AI compliance analysis on chunked content."""
+    def log(message):
+        if log_callback: log_callback(message)
+        logger.info(message)
+    
     try:
         # Parse JSON and extract chunks
+        log("📊 Parsing JSON and extracting chunks...")
         json_data = json.loads(json_output)
         chunks = extract_big_chunks(json_data)
         
         if not chunks:
             return False, "No chunks found in JSON data", None
+            
+        log(f"🚀 Starting parallel analysis of {len(chunks)} chunks...")
+        log(f"- Analyzer: {ANALYZER_ASSISTANT_ID}")
+        log("- Report Maker: Simple Concatenation (No AI)")
+        log("- API Key Status: ✅ Loaded")
         
         # Process chunks in parallel
-        analysis_results = await process_chunks_parallel(chunks, api_key, callback)
+        analysis_results = await process_chunks_parallel(chunks, api_key)
         
         # Create final report
+        log("📝 Assembling final report...")
         final_report = create_final_report_simple(analysis_results)
         
+        log("🎉 AI Analysis Complete!")
         return True, final_report, analysis_results
         
     except json.JSONDecodeError as e:
         error_msg = f"Invalid JSON format: {e}"
+        log(f"❌ {error_msg}")
         return False, error_msg, None
     except Exception as e:
         error_msg = f"AI analysis error: {e}"
+        log(f"❌ {error_msg}")
         return False, error_msg, None
 
 # --- Streamlit UI ---
@@ -790,8 +799,8 @@ def main():
                 st.error("Please enter a URL to process")
                 return
 
-            # clear old state including chunk progress tracking
-            for key in ("latest_result", "ai_analysis_result", "chunk_done"):
+            # clear old state
+            for key in ("latest_result", "ai_analysis_result"):
                 st.session_state.pop(key, None)
 
             if debug_mode:
@@ -857,8 +866,8 @@ def main():
         st.markdown("---")
         st.subheader("📊 Results")
         
-        # AI Analysis Button with enhanced progress tracking
-        if api_key and st.button("🤖 Start YMYL AI Compliance Analysis", type="secondary", use_container_width=True):
+        # AI Analysis Button
+        if api_key and st.button("🤖 Process with AI Compliance Analysis", type="secondary", use_container_width=True):
             try:
                 # Parse JSON and extract chunks first
                 json_data = json.loads(result['json_output'])
@@ -868,47 +877,37 @@ def main():
                     st.error("No chunks found in JSON data")
                     return
                 
-                # Initialize chunk progress tracking
-                num_chunks = len(chunks)
-                st.session_state['chunk_done'] = [False] * num_chunks
+                # Enhanced Processing Logs Section
+                st.subheader("🔍 Processing Logs")
+                log_container = st.container()
                 
-                # Processing info
-                st.info("🚀 Starting the analysis")
-                
-                # Display chunk details with progress lights
-                chunk_details_placeholder = st.empty()
-                def render_chunk_details():
-                    with chunk_details_placeholder.container():
-                        st.write("**Chunk Details:**")
-                        for i, chunk in enumerate(chunks):
-                            light = "🟢" if st.session_state['chunk_done'][i] else "⚪"
-                            st.write(f"{light} Chunk {chunk['index']}: {len(chunk['text']):,} characters")
-                
-                # Initial render with grey lights
-                render_chunk_details()
+                with log_container:
+                    st.info(f"🚀 Starting parallel analysis of {len(chunks)} chunks...")
+                    st.write("**Assistant IDs:**")
+                    st.write(f"- Analyzer: `{ANALYZER_ASSISTANT_ID}`")
+                    st.write("- Report Maker: `Simple Concatenation (No AI)`")
+                    st.write(f"**API Key Status:** {'✅ Loaded' if api_key.startswith('sk-') else '❌ Invalid'}")
+                    st.write("**Chunk Details:**")
+                    for chunk in chunks:
+                        st.write(f"- Chunk {chunk['index']}: {len(chunk['text']):,} characters")
                 
                 # Progress tracking
-                progress_bar = st.progress(0.0)
-                
-                # Define callback for chunk completion
-                def chunk_callback(idx):
-                    st.session_state['chunk_done'][idx] = True
-                    render_chunk_details()
-                    done = sum(st.session_state['chunk_done'])
-                    progress_bar.progress(done / num_chunks)
+                total_chunks = len(chunks)
+                progress_bar = st.progress(0)
+                status_container = st.empty()
                 
                 # Start processing with timing
                 start_time = time.time()
                 
                 with st.spinner("🤖 Running parallel analysis..."):
-                    # Run AI analysis with callback
+                    # Run AI analysis
                     success, ai_result, analysis_details = asyncio.run(process_ai_analysis(
                         result['json_output'], 
                         api_key, 
-                        chunk_callback
+                        None  # Disable callback since we have enhanced UI
                     ))
                 
-                # Final progress update
+                # Update progress
                 progress_bar.progress(1.0)
                 processing_time = time.time() - start_time
                 
@@ -917,17 +916,18 @@ def main():
                     successful_analyses = [r for r in analysis_details if r.get("success")]
                     failed_analyses = [r for r in analysis_details if not r.get("success")]
                     
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Total Chunks", num_chunks)
-                    with col2:
-                        st.metric("Successful", len(successful_analyses), 
-                                 delta=len(successful_analyses) if len(successful_analyses) == num_chunks else None)
-                    with col3:
-                        st.metric("Failed", len(failed_analyses), 
-                                 delta=f"-{len(failed_analyses)}" if len(failed_analyses) > 0 else None)
-                    
-                    st.success(f"✅ Parallel analysis completed in {processing_time:.2f} seconds")
+                    with status_container.container():
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Total Chunks", total_chunks)
+                        with col2:
+                            st.metric("Successful", len(successful_analyses), 
+                                     delta=len(successful_analyses) if len(successful_analyses) == total_chunks else None)
+                        with col3:
+                            st.metric("Failed", len(failed_analyses), 
+                                     delta=f"-{len(failed_analyses)}" if len(failed_analyses) > 0 else None)
+                        
+                        st.success(f"✅ Parallel analysis completed in {processing_time:.2f} seconds")
                     
                     # Store results
                     st.session_state['ai_analysis_result'] = {
@@ -935,7 +935,7 @@ def main():
                         'report': ai_result,
                         'details': analysis_details,
                         'processing_time': processing_time,
-                        'total_chunks': num_chunks,
+                        'total_chunks': total_chunks,
                         'successful_count': len(successful_analyses),
                         'failed_count': len(failed_analyses)
                     }
