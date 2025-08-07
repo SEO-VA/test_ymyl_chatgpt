@@ -5,3 +5,6 @@ selenium
 pytz
 aiohttp
 openai
+python-docx
+reportlab
+markdown
