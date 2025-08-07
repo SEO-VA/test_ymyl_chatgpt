@@ -841,12 +841,11 @@ def main():
     with col2:
         st.subheader("ℹ️ How it works")
         st.markdown("""
-        1.  **Extract**: Scrapes content from H1, Subtitle, Lead, Article, FAQ, and Author sections.
-        2.  **Copy & Paste**: Submits the text to `chunk.dejan.ai` using a robust copy-paste simulation.
-        3.  **Monitor**: Waits for the `<h3>` result heading to appear.
-        4.  **Extract JSON**: Securely polls and extracts the complete JSON from the copy button's data attribute.
-        5.  **AI Analysis**: Process chunks with OpenAI for YMYL compliance review.
-        6.  **Display**: Shows results in the tabs below.
+        1.  **Extract**: Extract the content from the page.
+        2.  **Chunk**: Submits the content to Chunk Norris to improve formatting.
+        3.  **Get AI-formatted content**: Retrieve JSON chunked formatted content
+        5.  **YMYL Analysis**: Process chunks with AI for YMYL compliance review.
+        6.  **Report**: Shows results in the tabs below.
         """)
         st.info("💡 **New**: This version includes AI-powered YMYL compliance analysis!")
 
