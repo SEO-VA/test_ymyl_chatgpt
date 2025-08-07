@@ -767,7 +767,7 @@ async def process_ai_analysis(json_output, api_key, log_callback=None):
 
 # --- Streamlit UI ---
 def main():
-    st.title("🔄 Content Processor with AI Analysis")
+    st.title("🔄 YMYL Audit Tool")
     st.markdown("**Automatically extract content from websites, generate JSON chunks, and perform YMYL compliance analysis**")
     
     # Sidebar configuration
@@ -806,38 +806,37 @@ def main():
             placeholder="",
             help="Enter a complete URL including http:// or https://"
         )
-if st.button("🚀 Process URL", type="primary", use_container_width=True):
-    if not url:
-        st.error("Please enter a URL to process")
-    else:
-        with st.status("Extracting content", state="running") as status_box:
-            extractor = ContentExtractor()
-            success, content, error = extractor.extract_content(url)
-            if not success:
-                status_box.update(label=f"❌ Content extraction failed: {error}", state="error")
-                st.error(f"Content extraction failed: {error}")
-            else:
-                status_box.update(label="Sending content to Chunk Norris", state="running")
-                processor = ChunkProcessor()
-                success, json_output, error = processor.process_content(content)
-                if not success:
-                    status_box.update(label=f"❌ Chunking failed: {error}", state="error")
-                    st.error(f"Chunking failed: {error}")
-                else:
-                    status_box.update(label="You are not waiting, Chunk Norris is waiting for you...", state="running")
-                    time.sleep(1.5)  # Optional pause for user experience
-                    status_box.update(label="✅ Chunking done!", state="complete")
+        if st.button("🚀 Process URL", type="primary", use_container_width=True):
+            if not url:
+                st.error("Please enter a URL to process")
+                return
+            
+            with st.spinner("Processing your request... This may take several minutes for large content."):
+                log_placeholder = st.empty()
+                log_messages = []
 
-                    # Save results in session
-                    st.session_state['latest_result'] = {
-                        'success': True,
-                        'url': url,
-                        'extracted_content': content,
-                        'json_output': json_output
-                    }
+                def log_callback(message):
+                    # Fetches current time based on user's location
+                    utc_now = datetime.now(pytz.utc)
+                    cest_tz = pytz.timezone('Europe/Malta')
+                    cest_now = utc_now.astimezone(cest_tz)
+                    log_messages.append(f"`{cest_now.strftime('%H:%M:%S')} (CEST)`: {message}")
+                    with log_placeholder.container():
+                        st.info("\n\n".join(log_messages))
+                
+                # Clear previous results before starting a new run
+                if 'latest_result' in st.session_state:
+                    del st.session_state['latest_result']
+                if 'ai_analysis_result' in st.session_state:
+                    del st.session_state['ai_analysis_result']
+                
+                result = process_url_workflow_with_logging(url, log_callback if debug_mode else None)
+                st.session_state['latest_result'] = result
+
+                if result['success']:
                     st.success("Processing completed successfully!")
-
-
+                else:
+                    st.error(f"An error occurred: {result['error']}")
 
     with col2:
         st.subheader("ℹ️ How it works")
