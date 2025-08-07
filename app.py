@@ -26,6 +26,18 @@ import logging
 import asyncio
 import aiohttp
 from openai import OpenAI
+import io
+from docx import Document
+from docx.shared import Inches, RGBColor
+from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+import markdown
+import re
 
 # --- Logging Configuration ---
 logging.basicConfig(level=logging.INFO)
@@ -220,6 +232,293 @@ class ChunkProcessor:
             self.log("✅ Browser closed.")
 
 # --- Component 3: AI Processing Functions ---
+
+def convert_to_html(markdown_content):
+    """Convert markdown report to styled HTML"""
+    try:
+        # Convert markdown to HTML
+        html_content = markdown.markdown(markdown_content, extensions=['tables', 'toc'])
+        
+        # Add professional CSS styling
+        css_style = """
+        <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #34495e;
+            border-left: 4px solid #3498db;
+            padding-left: 10px;
+            margin-top: 30px;
+        }
+        h3 {
+            color: #34495e;
+            margin-top: 25px;
+        }
+        .severity-critical { color: #e74c3c; font-weight: bold; }
+        .severity-high { color: #e67e22; font-weight: bold; }
+        .severity-medium { color: #f39c12; font-weight: bold; }
+        .severity-low { color: #3498db; font-weight: bold; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+        }
+        .processing-summary {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        code {
+            background-color: #f1f2f6;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        blockquote {
+            border-left: 4px solid #bdc3c7;
+            margin: 0;
+            padding-left: 15px;
+            color: #7f8c8d;
+        }
+        </style>
+        """
+        
+        # Enhance severity indicators
+        html_content = html_content.replace('🔴', '<span class="severity-critical">🔴</span>')
+        html_content = html_content.replace('🟠', '<span class="severity-high">🟠</span>')
+        html_content = html_content.replace('🟡', '<span class="severity-medium">🟡</span>')
+        html_content = html_content.replace('🔵', '<span class="severity-low">🔵</span>')
+        
+        # Wrap processing summary
+        html_content = re.sub(
+            r'## Processing Summary(.*?)(?=##|$)', 
+            r'<div class="processing-summary"><h2>Processing Summary</h2>\1</div>', 
+            html_content, 
+            flags=re.DOTALL
+        )
+        
+        # Complete HTML document
+        full_html = f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>YMYL Compliance Audit Report</title>
+            {css_style}
+        </head>
+        <body>
+            {html_content}
+        </body>
+        </html>
+        """
+        
+        return full_html.encode('utf-8')
+    except Exception as e:
+        logger.error(f"HTML conversion error: {e}")
+        return f"<html><body><h1>Export Error</h1><p>Failed to convert report: {e}</p></body></html>".encode('utf-8')
+
+def convert_to_word(markdown_content):
+    """Convert markdown report to Word document"""
+    try:
+        doc = Document()
+        
+        # Set document styles
+        styles = doc.styles
+        
+        # Create custom heading styles
+        if 'Report Title' not in styles:
+            title_style = styles.add_style('Report Title', WD_STYLE_TYPE.PARAGRAPH)
+            title_style.font.size = Inches(0.2)
+            title_style.font.bold = True
+            title_style.font.color.rgb = RGBColor(44, 62, 80)
+            title_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # Parse markdown content
+        lines = markdown_content.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Handle headers
+            if line.startswith('# '):
+                heading = doc.add_heading(line[2:], level=1)
+                heading.style = 'Report Title'
+            elif line.startswith('## '):
+                doc.add_heading(line[3:], level=2)
+            elif line.startswith('### '):
+                doc.add_heading(line[4:], level=3)
+            elif line.startswith('**') and line.endswith('**'):
+                # Bold text
+                p = doc.add_paragraph()
+                run = p.add_run(line[2:-2])
+                run.bold = True
+            elif line.startswith('- '):
+                # Bullet points
+                doc.add_paragraph(line[2:], style='List Bullet')
+            elif line.startswith('---'):
+                # Horizontal rule (skip)
+                continue
+            elif '🔴' in line or '🟠' in line or '🟡' in line or '🔵' in line:
+                # Severity indicators - make them stand out
+                p = doc.add_paragraph(line)
+                if '🔴' in line:
+                    p.runs[0].font.color.rgb = RGBColor(231, 76, 60)  # Red
+                elif '🟠' in line:
+                    p.runs[0].font.color.rgb = RGBColor(230, 126, 34)  # Orange
+                elif '🟡' in line:
+                    p.runs[0].font.color.rgb = RGBColor(243, 156, 18)  # Yellow/Gold
+                elif '🔵' in line:
+                    p.runs[0].font.color.rgb = RGBColor(52, 152, 219)  # Blue
+                p.runs[0].font.bold = True
+            else:
+                # Regular paragraph
+                if line:
+                    doc.add_paragraph(line)
+        
+        # Save to memory
+        doc_buffer = io.BytesIO()
+        doc.save(doc_buffer)
+        doc_buffer.seek(0)
+        return doc_buffer.getvalue()
+        
+    except Exception as e:
+        logger.error(f"Word conversion error: {e}")
+        # Return simple document with error message
+        doc = Document()
+        doc.add_heading('Export Error', 0)
+        doc.add_paragraph(f'Failed to convert report: {e}')
+        doc_buffer = io.BytesIO()
+        doc.save(doc_buffer)
+        doc_buffer.seek(0)
+        return doc_buffer.getvalue()
+
+def convert_to_pdf(markdown_content):
+    """Convert markdown report to PDF document"""
+    try:
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
+        
+        # Get styles
+        styles = getSampleStyleSheet()
+        
+        # Create custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            textColor=colors.HexColor('#2c3e50'),
+            spaceAfter=30,
+            alignment=1  # Center alignment
+        )
+        
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=14,
+            textColor=colors.HexColor('#34495e'),
+            spaceBefore=12,
+            spaceAfter=6
+        )
+        
+        critical_style = ParagraphStyle(
+            'Critical',
+            parent=styles['Normal'],
+            textColor=colors.red,
+            fontSize=10,
+            fontName='Helvetica-Bold'
+        )
+        
+        high_style = ParagraphStyle(
+            'High',
+            parent=styles['Normal'],
+            textColor=colors.orange,
+            fontSize=10,
+            fontName='Helvetica-Bold'
+        )
+        
+        # Build story
+        story = []
+        lines = markdown_content.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            if line.startswith('# '):
+                story.append(Paragraph(line[2:], title_style))
+                story.append(Spacer(1, 12))
+            elif line.startswith('## '):
+                story.append(Spacer(1, 12))
+                story.append(Paragraph(line[3:], heading_style))
+            elif line.startswith('### '):
+                story.append(Paragraph(line[4:], styles['Heading3']))
+            elif line.startswith('**') and line.endswith('**'):
+                story.append(Paragraph(f"<b>{line[2:-2]}</b>", styles['Normal']))
+            elif line.startswith('---'):
+                story.append(Spacer(1, 12))
+            elif '🔴' in line:
+                story.append(Paragraph(line, critical_style))
+            elif '🟠' in line:
+                story.append(Paragraph(line, high_style))
+            elif line.startswith('- '):
+                story.append(Paragraph(f"• {line[2:]}", styles['Normal']))
+            else:
+                if line:
+                    story.append(Paragraph(line, styles['Normal']))
+                    story.append(Spacer(1, 6))
+        
+        # Build PDF
+        doc.build(story)
+        buffer.seek(0)
+        return buffer.getvalue()
+        
+    except Exception as e:
+        logger.error(f"PDF conversion error: {e}")
+        # Return simple error PDF
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4)
+        story = [
+            Paragraph("Export Error", getSampleStyleSheet()['Title']),
+            Spacer(1, 12),
+            Paragraph(f"Failed to convert report: {e}", getSampleStyleSheet()['Normal'])
+        ]
+        doc.build(story)
+        buffer.seek(0)
+        return buffer.getvalue()
+
+def create_export_options(report_content):
+    """Create multiple export format options"""
+    return {
+        'html': convert_to_html(report_content),
+        'docx': convert_to_word(report_content),
+        'pdf': convert_to_pdf(report_content),
+        'markdown': report_content.encode('utf-8')
+    }
 
 def extract_big_chunks(json_data):
     """Extract and format big chunks for AI processing."""
@@ -651,13 +950,76 @@ def main():
             with tab1:
                 st.markdown("### YMYL Compliance Analysis Report")
                 ai_report = st.session_state['ai_analysis_result']['report']
+                
+                # Enhanced Export Options
+                st.markdown("#### 📋 Copy Report")
                 st.code(ai_report, language='markdown')
-                st.download_button(
-                    label="💾 Download Compliance Report",
-                    data=ai_report,
-                    file_name=f"ymyl_compliance_report_{int(time.time())}.md",
-                    mime="text/markdown"
-                )
+                
+                # Multiple Export Format Options
+                st.markdown("#### 📄 Download Formats")
+                st.markdown("Choose your preferred format for professional use:")
+                
+                # Create export data
+                try:
+                    export_formats = create_export_options(ai_report)
+                    timestamp = int(time.time())
+                    
+                    # Create download buttons in columns
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.download_button(
+                            label="📝 Markdown",
+                            data=export_formats['markdown'],
+                            file_name=f"ymyl_compliance_report_{timestamp}.md",
+                            mime="text/markdown",
+                            help="Original markdown format - perfect for copying to other platforms"
+                        )
+                    
+                    with col2:
+                        st.download_button(
+                            label="🌐 HTML",
+                            data=export_formats['html'],
+                            file_name=f"ymyl_compliance_report_{timestamp}.html",
+                            mime="text/html",
+                            help="Styled HTML document - opens in any web browser"
+                        )
+                    
+                    with col3:
+                        st.download_button(
+                            label="📄 Word",
+                            data=export_formats['docx'],
+                            file_name=f"ymyl_compliance_report_{timestamp}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            help="Microsoft Word document - ready for editing and sharing"
+                        )
+                    
+                    with col4:
+                        st.download_button(
+                            label="📋 PDF",
+                            data=export_formats['pdf'],
+                            file_name=f"ymyl_compliance_report_{timestamp}.pdf",
+                            mime="application/pdf",
+                            help="Professional PDF document - perfect for presentations and archival"
+                        )
+                    
+                    st.info("""
+                    💡 **Format Guide:**
+                    - **Markdown**: Best for developers and copy-pasting to other platforms
+                    - **HTML**: Opens in web browsers, styled and formatted
+                    - **Word**: Professional business format, editable and shareable
+                    - **PDF**: Final presentation format, preserves formatting across devices
+                    """)
+                    
+                except Exception as e:
+                    st.error(f"Error creating export formats: {e}")
+                    # Fallback to basic markdown download
+                    st.download_button(
+                        label="💾 Download Report (Markdown)",
+                        data=ai_report,
+                        file_name=f"ymyl_compliance_report_{timestamp}.md",
+                        mime="text/markdown"
+                    )
                 
                 with st.expander("📖 View Formatted Report"):
                     st.markdown(ai_report)
