@@ -767,25 +767,18 @@ async def process_ai_analysis(json_output, api_key, log_callback=None):
 
 # --- Streamlit UI ---
 def main():
-    st.title("🔄 YMYL Audit Tool")
+    st.title("🔄 Content Processor with AI Analysis")
     st.markdown("**Automatically extract content from websites, generate JSON chunks, and perform YMYL compliance analysis**")
-    
+
     # Sidebar configuration
     debug_mode = st.sidebar.checkbox("🐛 Debug Mode", value=True, help="Show detailed processing logs")
-    
+
     # API Key configuration
     st.sidebar.markdown("### 🔑 AI Analysis Configuration")
-    api_key = None
-    
-    # Try to get API key from secrets first
     try:
-        api_key = st.secrets.get("openai_api_key")
-        if api_key:
-            st.sidebar.success("✅ API Key loaded from secrets")
-        else:
-            raise KeyError("No API key in secrets")
-    except (KeyError, AttributeError):
-        # Fallback to user input
+        api_key = st.secrets["openai_api_key"]
+        st.sidebar.success("✅ API Key loaded from secrets")
+    except Exception:
         api_key = st.sidebar.text_input(
             "OpenAI API Key:",
             type="password",
@@ -795,59 +788,77 @@ def main():
             st.sidebar.success("✅ API Key provided")
         else:
             st.sidebar.warning("⚠️ API Key needed for AI analysis")
-    
+
     st.markdown("---")
-    
     col1, col2 = st.columns([2, 1])
-    
+
     with col1:
-        url = st.text_input(
-            "Enter the URL to process:",
-            placeholder="",
-            help="Enter a complete URL including http:// or https://"
-        )
+        url = st.text_input("Enter the URL to process:", help="Include http:// or https://")
         if st.button("🚀 Process URL", type="primary", use_container_width=True):
             if not url:
                 st.error("Please enter a URL to process")
                 return
-            
-            with st.spinner("Processing your request... This may take several minutes for large content."):
+
+            # clear old state
+            for key in ("latest_result", "ai_analysis_result"):
+                st.session_state.pop(key, None)
+
+            if debug_mode:
+                # Detailed logging
                 log_placeholder = st.empty()
-                log_messages = []
+                log_lines = []
+                def log_callback(msg):
+                    now = datetime.now(pytz.timezone("Europe/Malta"))
+                    log_lines.append(f"`{now.strftime('%H:%M:%S')}`: {msg}")
+                    log_placeholder.info("\n".join(log_lines))
 
-                def log_callback(message):
-                    # Fetches current time based on user's location
-                    utc_now = datetime.now(pytz.utc)
-                    cest_tz = pytz.timezone('Europe/Malta')
-                    cest_now = utc_now.astimezone(cest_tz)
-                    log_messages.append(f"`{cest_now.strftime('%H:%M:%S')} (CEST)`: {message}")
-                    with log_placeholder.container():
-                        st.info("\n\n".join(log_messages))
-                
-                # Clear previous results before starting a new run
-                if 'latest_result' in st.session_state:
-                    del st.session_state['latest_result']
-                if 'ai_analysis_result' in st.session_state:
-                    del st.session_state['ai_analysis_result']
-                
-                result = process_url_workflow_with_logging(url, log_callback if debug_mode else None)
-                st.session_state['latest_result'] = result
-
-                if result['success']:
+                result = process_url_workflow_with_logging(url, log_callback)
+                st.session_state["latest_result"] = result
+                if result["success"]:
                     st.success("Processing completed successfully!")
                 else:
-                    st.error(f"An error occurred: {result['error']}")
+                    st.error(f"Error: {result['error']}")
+            else:
+                # Simple milestones
+                log_area = st.empty()
+                milestones = []
+                def simple_log(text):
+                    milestones.append(f"- {text}")
+                    log_area.markdown("\n".join(milestones))
+
+                simple_log("Extracting content")
+                extractor = ContentExtractor()
+                ok, content, err = extractor.extract_content(url)
+                if not ok:
+                    st.error(f"Error: {err}")
+                    return
+
+                simple_log("Sending content to Chunk Norris")
+                processor = ChunkProcessor()
+
+                with st.status("You are not waiting, Chunk Norris is waiting for you"):
+                    ok, json_out, err = processor.process_content(content)
+
+                simple_log("Chunking done!")
+                st.success("Chunking done!")
+
+                st.session_state["latest_result"] = {
+                    "success": ok,
+                    "url": url,
+                    "extracted_content": content if ok else None,
+                    "json_output": json_out if ok else None,
+                    "error": err
+                }
 
     with col2:
         st.subheader("ℹ️ How it works")
         st.markdown("""
-        1.  **Extract**: Extract the content from the page.
-        2.  **Chunk**: Submits the content to Chunk Norris to improve formatting.
-        3.  **Get AI-formatted content**: Retrieve JSON chunked formatted content
-        5.  **YMYL Analysis**: Process chunks with AI for YMYL compliance review.
-        6.  **Report**: Shows results in the tabs below.
-        """)
-        st.info("💡 **New**: This version includes AI-powered YMYL compliance analysis!")
+1. **Extract**: Fetch and parse the page.
+2. **Chunk**: Send extracted text to Chunk Norris.
+3. **Wait**: Spinner indicates Chunk Norris is working.
+4. **Done**: Chunking complete, view results below.
+""")
+        st.info("💡 **New**: AI-powered YMYL compliance analysis available!")
 
     # Results Display
     if 'latest_result' in st.session_state and st.session_state['latest_result'].get('success'):
