@@ -767,7 +767,7 @@ async def process_ai_analysis(json_output, api_key, log_callback=None):
 
 # --- Streamlit UI ---
 def main():
-    st.title("🕵 Content Processor with AI Analysis")
+    st.title("🕵 YMYL Audit Tool")
     st.markdown("**Automatically extract content from websites, generate JSON chunks, and perform YMYL compliance analysis**")
 
     # Sidebar configuration
